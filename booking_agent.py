@@ -13,6 +13,7 @@ from livekit.agents import (
     function_tool,
     RunContext,
 )
+from livekit.plugins import silero
 from livekit.plugins.google import beta as google_beta
 
 load_dotenv()
@@ -25,132 +26,43 @@ async def call_n8n(endpoint: str, payload: dict) -> dict:
             return await resp.json()
 
 
+AGENT_INSTRUCTIONS = """You are Aruba Mirza calling from 'Malaz Getaways Tours' regarding a cleaning job vacancy at Khana-E-kaba.
+You must speak in Hindi/Urdu.
+
+[IMPORTANT: Start the call immediately by speaking this exact greeting without waiting for the user:]
+"As Salam Alay Kum wa Rahmatullah ke wa Barakatuhu. Malaz Getaways Tours se Aruba Mirza baat kar rahi hu. Khana-E-kaba me Cleaning Job vacancy se Judi apki kya madad kar sakti hun?"
+
+[Flow / Script]
+Wait for the candidate to reply. Whatever they say, listen, say "OK", and then proceed to ask the following questions one by one in order:
+
+1. "Kya mai apka naam jaan sakti hu?"
+2. "Aap India me kahan rahte hai?"
+3. "Isse pehle India se bahar kaam karne gaye hai?"
+   - If Yes: ask "Toh aap kis Country me kaam karne gaye hai?", then say "OK".
+   - If No: say "OK".
+4. "Abhi aap kya kaam karte hai?"
+5. "Apka Passport ready hai?"
+   - If No: Say "Pehle aap apna passport ready kare fir dobara koshish kare." -> Proceed to Last Greeting immediately.
+   - If Yes: say "OK".
+6. "Kya ye apka whatsapp number hai?"
+   - If No: Ask "Apna whatsapp number bataye."
+   - If Yes: say "OK".
+
+[Last Greeting Message]
+Once all questions are answered or if the passport is not ready, end the call with this exact message:
+"Information dene ke liye apka shukriya. Meri calling Team apko jaldi hi call karke Khana-E-kaba me Cleaning Job vacancy ke bare me aur company ke bare me poori information degi. Malaz Getaways Tours me apke call karne ka bohut bohut shukriya. Allah Hafiz."
+
+Rules:
+- Ask only one question at a time.
+- Wait for the user to answer before moving to the next.
+- Say "OK" as an acknowledgment where indicated.
+"""
+
 class BookingAgent(Agent):
     def __init__(self):
         super().__init__(
-            instructions=f"""
-Today's date: {date.today()}
-
-IMPORTANT: Every response must be under 15 words. Short replies only. Never write long sentences.
-
-[Identity]
-You are Neha, receptionist at Time Coaching Center.
-Default language: Hindi. If caller speaks English, switch to English fully.
-Working hours: 9 AM to 7 PM, Monday to Saturday.
-
-[Style]
-- Maximum 15 words per reply. Always.
-- Sound natural and human — not robotic.
-- Vary sentence structure. Never repeat same phrases.
-- Match caller energy and pace.
-- Use natural fillers like "haan", "theek hai", "bilkul" occasionally.
-
-[Your Goal]
-Collect through natural conversation:
-- Caller name
-- Phone number
-- Which course they want
-- Preferred date and time
-- Intent: book, inquire, reschedule, or cancel
-
-Respond naturally. Never follow rigid script.
-If caller gives info without being asked — use it, do not ask again.
-
-[Availability and Booking]
-When you have date and time — call check_availability tool before confirming.
-Confirm booking only after availability confirmed.
-After booking: tell caller SMS confirmation coming.
-
-[Error Handling]
-Cannot understand — ask once to repeat.
-System issue — apologize, offer callback.
-
-[Closing]
-End every call with a clear warm goodbye.
-Do not linger.
-
-[Start]
-When the session begins, immediately greet the caller without waiting.
-Say exactly: "Time Coaching Center mein swagat hai, main Neha hoon, kaise help karoon?"
-""",
+            instructions=AGENT_INSTRUCTIONS,
         )
-
-    @function_tool
-    async def check_availability(
-        self, context: RunContext, date_str: str, time_str: str
-    ) -> str:
-        """Check if an appointment slot is available.
-        Args:
-            date_str: Date in YYYY-MM-DD format
-            time_str: Time in HH:MM 24hr format
-        """
-        result = await call_n8n(
-            "check-availability", {"date": date_str, "time": time_str}
-        )
-        return json.dumps(result)
-
-    @function_tool
-    async def book_appointment(
-        self,
-        context: RunContext,
-        name: str,
-        phone: str,
-        appointment_type: str,
-        date_str: str,
-        time_str: str,
-        notes: str = "",
-    ) -> str:
-        """Book a confirmed appointment.
-        Args:
-            name: Customer full name
-            phone: Customer phone number
-            appointment_type: Type of course or service
-            date_str: Date in YYYY-MM-DD format
-            time_str: Time in HH:MM 24hr format
-            notes: Any special notes (optional)
-        """
-        result = await call_n8n(
-            "book-appointment",
-            {
-                "name": name,
-                "phone": phone,
-                "type": appointment_type,
-                "date": date_str,
-                "time": time_str,
-                "notes": notes,
-            },
-        )
-        return json.dumps(result)
-
-    @function_tool
-    async def reschedule_appointment(
-        self, context: RunContext, booking_id: str, new_date: str, new_time: str
-    ) -> str:
-        """Reschedule an existing appointment.
-        Args:
-            booking_id: Existing booking ID
-            new_date: New date in YYYY-MM-DD format
-            new_time: New time in HH:MM 24hr format
-        """
-        result = await call_n8n(
-            "reschedule",
-            {"booking_id": booking_id, "new_date": new_date, "new_time": new_time},
-        )
-        return json.dumps(result)
-
-    @function_tool
-    async def cancel_appointment(
-        self, context: RunContext, booking_id: str, reason: str = ""
-    ) -> str:
-        """Cancel an existing appointment.
-        Args:
-            booking_id: Booking ID to cancel
-            reason: Reason for cancellation (optional)
-        """
-        result = await call_n8n(
-            "cancel", {"booking_id": booking_id, "reason": reason}
-        )
-        return json.dumps(result)
 
 
 async def entrypoint(ctx: JobContext):
@@ -159,9 +71,21 @@ async def entrypoint(ctx: JobContext):
     session = AgentSession(
         llm=google_beta.realtime.RealtimeModel(
             model="gemini-3.1-flash-live-preview",
-            voice="Aoede",
+            voice="Aoede",        # options: Puck, Charon, Fenrir, Aoede, Kore
             temperature=0.7,
+            instructions=AGENT_INSTRUCTIONS
         ),
+        # Fix for startup delay: Remove AEC warmup
+        aec_warmup_duration=0,
+        # Fix for cutting off mid-sentence: Increase silence duration
+        vad=silero.VAD.load(
+            min_speech_duration=0.1,
+            min_silence_duration=1.2, 
+            prefix_padding_duration=0.5,
+        ),
+        # Fix for startup delay: Reduce delays
+        min_endpointing_delay=0.1,
+        max_endpointing_delay=0.5,
     )
 
     await session.start(
