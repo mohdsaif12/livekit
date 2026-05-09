@@ -1,4 +1,3 @@
-
 import os
 import json
 import aiohttp
@@ -14,10 +13,10 @@ from livekit.agents import (
     function_tool,
     RunContext,
 )
-from livekit.plugins import openai, deepgram, silero
-from livekit.plugins.sarvam import TTS
+from livekit.plugins.google import beta as google_beta
 
 load_dotenv()
+
 
 async def call_n8n(endpoint: str, payload: dict) -> dict:
     url = f"{os.getenv('N8N_BASE_URL')}/webhook/{endpoint}"
@@ -30,116 +29,127 @@ class BookingAgent(Agent):
     def __init__(self):
         super().__init__(
             instructions=f"""
-[Identity]  
-You are Neha, a warm and friendly receptionist at Time Coaching Center, helping clients with call bookings and their inquiries.
+Today's date: {date.today()}
 
-Default Language: Hindi (Devanagari).
+IMPORTANT: Every response must be under 15 words. Short replies only. Never write long sentences.
 
-If the caller starts speaking English, switch to English for the entire conversation.
+[Identity]
+You are Neha, receptionist at Time Coaching Center.
+Default language: Hindi. If caller speaks English, switch to English fully.
+Working hours: 9 AM to 7 PM, Monday to Saturday.
 
-Use casual vocabulary such as class, registration, courses, tutoring, services, and timing.
+[Style]
+- Maximum 15 words per reply. Always.
+- Sound natural and human — not robotic.
+- Vary sentence structure. Never repeat same phrases.
+- Match caller energy and pace.
+- Use natural fillers like "haan", "theek hai", "bilkul" occasionally.
 
-Working Hours: 9 AM – 7 PM (Monday to Saturday).
+[Your Goal]
+Collect through natural conversation:
+- Caller name
+- Phone number
+- Which course they want
+- Preferred date and time
+- Intent: book, inquire, reschedule, or cancel
 
-[Style]  
-- Keep replies brief, between 8 to 12 words.  
-- Maintain a natural, steady, and polite tone—avoid sounding robotic.  
-- Break lengthy information into 2-3 concise sentences.  
-- Match the caller’s mood (casual, busy, serious) appropriately.
+Respond naturally. Never follow rigid script.
+If caller gives info without being asked — use it, do not ask again.
 
-[Response Guidelines]  
-- Begin with a welcoming tone.
-- Clarify the reason for the call promptly.
-- Use simple and clear language in both Hindi and English as needed.
-- Confirm twice for clarity on details.
-- Use positive language, especially when handling booking confirmations or availability checks.
+[Availability and Booking]
+When you have date and time — call check_availability tool before confirming.
+Confirm booking only after availability confirmed.
+After booking: tell caller SMS confirmation coming.
 
-[Task & Goals]  
-1. Greet the caller:
+[Error Handling]
+Cannot understand — ask once to repeat.
+System issue — apologize, offer callback.
 
-   - Hindi: “Time Coaching Center में आपका स्वागत है। मैं नेहा बोल रही हूँ. मैं आपकी किस प्रकार से सहायता कर सकती हूँ?”  
-   - English: “Welcome to Bright Minds Coaching Center. This is Neha. How may I assist you?”
+[Closing]
+End every call with a clear warm goodbye.
+Do not linger.
 
-2. Identify the reason for the call:
-
-   - Registration: “ठीक है, आप कौनसा course register करना चाहेंगे?”  
-   - Inquiry: “जी, कौनसी जानकारी चाहिए आपको?”
-
-3. Ask about their preferred timing:
-
-   - “कब और कौनसा time आपके लिए सुविधाजनक रहेगा?”
-
-4. Check availability:
-
-   - If slots are available: “उस time पर class available है।”  
-   - If not available: “उस time पर class full है। [Alternate time] available है। क्या ये सही रहेगा?”
-
-5. Confirm details with the caller:
-
-   - “तो confirm कर लूँ — आपकी class [course], [day], [time] पर है। सही है न?”
-
-6. Proceed based on confirmation:
-
-   - If yes: “Perfect, आपकी registration हो गई है। आपको SMS confirmation भी मिलेगा।”  
-   - If no: “ठीक है, कोई बात नहीं। जब भी निर्णय लें, call कर लीजिए।”
-
-7. Close the call appropriately:
-
-   - If registered: “Thank you, [day/time] पर मिलते हैं Bright Minds Coaching Center में।”  
-   - If not registered: “Thank you for calling Bright Minds Coaching Center. Have a nice day.”
-
-[Error Handling / Fallback]  
-- If unclear input, ask a clarifying question.
-- Politely apologize if any system issue occurs and provide alternative solutions.
-
-[Call Closing]  
-- Always end with a clear goodbye.  
-- Avoid lingering or asking, "are you still there?".
+[Start]
+When the session begins, immediately greet the caller without waiting.
+Say exactly: "Time Coaching Center mein swagat hai, main Neha hoon, kaise help karoon?"
 """,
         )
 
     @function_tool
-    async def check_availability(self, context: RunContext, date_str: str, time_str: str) -> str:
+    async def check_availability(
+        self, context: RunContext, date_str: str, time_str: str
+    ) -> str:
         """Check if an appointment slot is available.
         Args:
             date_str: Date in YYYY-MM-DD format
             time_str: Time in HH:MM 24hr format
         """
-        result = await call_n8n("check-availability", {"date": date_str, "time": time_str})
+        result = await call_n8n(
+            "check-availability", {"date": date_str, "time": time_str}
+        )
         return json.dumps(result)
 
     @function_tool
-    async def book_appointment(self, context: RunContext, name: str, phone: str, appointment_type: str, date_str: str, time_str: str, notes: str = "") -> str:
+    async def book_appointment(
+        self,
+        context: RunContext,
+        name: str,
+        phone: str,
+        appointment_type: str,
+        date_str: str,
+        time_str: str,
+        notes: str = "",
+    ) -> str:
         """Book a confirmed appointment.
         Args:
             name: Customer full name
             phone: Customer phone number
+            appointment_type: Type of course or service
             date_str: Date in YYYY-MM-DD format
             time_str: Time in HH:MM 24hr format
             notes: Any special notes (optional)
         """
-        result = await call_n8n("book-appointment", {"name": name, "phone": phone, "type": appointment_type, "date": date_str, "time": time_str, "notes": notes})
+        result = await call_n8n(
+            "book-appointment",
+            {
+                "name": name,
+                "phone": phone,
+                "type": appointment_type,
+                "date": date_str,
+                "time": time_str,
+                "notes": notes,
+            },
+        )
         return json.dumps(result)
 
     @function_tool
-    async def reschedule_appointment(self, context: RunContext, booking_id: str, new_date: str, new_time: str) -> str:
+    async def reschedule_appointment(
+        self, context: RunContext, booking_id: str, new_date: str, new_time: str
+    ) -> str:
         """Reschedule an existing appointment.
         Args:
             booking_id: Existing booking ID
             new_date: New date in YYYY-MM-DD format
             new_time: New time in HH:MM 24hr format
         """
-        result = await call_n8n("reschedule", {"booking_id": booking_id, "new_date": new_date, "new_time": new_time})
+        result = await call_n8n(
+            "reschedule",
+            {"booking_id": booking_id, "new_date": new_date, "new_time": new_time},
+        )
         return json.dumps(result)
 
     @function_tool
-    async def cancel_appointment(self, context: RunContext, booking_id: str, reason: str = "") -> str:
+    async def cancel_appointment(
+        self, context: RunContext, booking_id: str, reason: str = ""
+    ) -> str:
         """Cancel an existing appointment.
         Args:
             booking_id: Booking ID to cancel
             reason: Reason for cancellation (optional)
         """
-        result = await call_n8n("cancel", {"booking_id": booking_id, "reason": reason})
+        result = await call_n8n(
+            "cancel", {"booking_id": booking_id, "reason": reason}
+        )
         return json.dumps(result)
 
 
@@ -147,41 +157,16 @@ async def entrypoint(ctx: JobContext):
     await ctx.connect()
 
     session = AgentSession(
-        stt=deepgram.STT(
-           model="nova-2-general",
-           language="multi",
-           smart_format=True,
-           punctuate=True,
-           interim_results=True,
-           filler_words=False,
-           endpointing_ms=50,
+        llm=google_beta.realtime.RealtimeModel(
+            model="gemini-3.1-flash-live-preview",
+            voice="Aoede",
+            temperature=0.7,
         ),
-        llm=openai.LLM(
-            model="gpt-4o-mini",
-        ),
-        tts=TTS(
-            model="bulbul:v2",
-            target_language_code="hi-IN",
-            speaker="anushka",
-            speech_sample_rate=22050,
-            pace=1.0,
-        ),
-        vad=silero.VAD.load(
-            min_speech_duration=0.03,
-        min_silence_duration=0.08,
-        prefix_padding_duration=0.05,
-        ),
-        min_endpointing_delay=0.0,
-        max_endpointing_delay=0.2,
     )
 
     await session.start(
         room=ctx.room,
         agent=BookingAgent(),
-    )
-
-    await session.generate_reply(
-        instructions="Introduce yourself as Priya in Hindi and ask how you can help with booking."
     )
 
 

@@ -1,0 +1,7 @@
+aiohttp
+python-dotenv
+livekit-agents
+livekit-plugins-openai
+livekit-plugins-deepgram
+livekit-plugins-silero
+livekit-plugins-sarvam
