@@ -5,3 +5,4 @@ livekit-plugins-openai
 livekit-plugins-deepgram
 livekit-plugins-silero
 livekit-plugins-sarvam
+livekit-plugins-google
